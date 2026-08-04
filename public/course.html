@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Course · LearnStream</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+<script>document.documentElement.setAttribute('data-theme', localStorage.getItem('ls_theme') || 'light');</script>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>LearnStream</div>
+    <nav>
+      <span class="who" id="whoami"></span>
+      <a href="/dashboard.html" data-track="nav-dashboard">Dashboard</a>
+      <a href="/profile.html" data-track="nav-profile">Profile</a>
+      <a href="/admin.html" id="adminLink" style="display:none" data-track="nav-admin">Activity log</a>
+      <button class="linklike" id="logoutBtn" data-track="nav-logout">Sign out</button>
+      <button class="theme-toggle" id="themeToggleBtn" data-track="toggle-theme"></button>
+    </nav>
+  </div>
+
+  <div class="shell">
+    <div class="section-eyebrow" id="courseCode">&nbsp;</div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <h1 id="courseTitle">Loading&hellip;</h1>
+      <div style="display:flex;align-items:center;gap:14px;">
+        <button class="bookmark-btn" id="bookmarkBtn" data-track="bookmark-course" title="Bookmark this course">&#9734;</button>
+        <span id="certWrap"></span>
+      </div>
+    </div>
+    <div id="ratingRow" style="margin:-6px 0 18px;"></div>
+
+    <div class="course-layout">
+      <aside>
+        <ul class="module-list" id="moduleList"></ul>
+      </aside>
+      <main class="card module-body" id="moduleBody">
+        <div class="loading">Loading module&hellip;</div>
+      </main>
+    </div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script src="/js/tracker.js"></script>
+<script src="/js/theme.js"></script>
+<script>
+(async function () {
+  let me;
+  try { me = (await Api.get('/api/auth/me')).user; }
+  catch (e) { location.href = '/login.html'; return; }
+  document.getElementById('whoami').textContent = `${me.full_name} (${me.username})`;
+  if (me.role === 'admin') document.getElementById('adminLink').style.display = 'inline';
+  ThemeToggle.init('themeToggleBtn');
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await Api.post('/api/auth/logout');
+    location.href = '/login.html';
+  });
+
+  const params = new URLSearchParams(location.search);
+  const courseId = params.get('id');
+  if (!courseId) { location.href = '/dashboard.html'; return; }
+
+  let courseData;
+  try {
+    courseData = await Api.get(`/api/courses/${courseId}`);
+  } catch (e) {
+    document.getElementById('moduleBody').innerHTML = `<div class="empty-state">${e.message}</div>`;
+    return;
+  }
+
+  document.getElementById('courseCode').textContent = courseData.course.code;
+  document.getElementById('courseTitle').textContent = courseData.course.title;
+
+  // ---- Bookmark toggle ----
+  const bookmarkBtn = document.getElementById('bookmarkBtn');
+  function syncBookmarkBtn() {
+    bookmarkBtn.innerHTML = courseData.bookmarked ? '&#9733;' : '&#9734;';
+    bookmarkBtn.classList.toggle('active', courseData.bookmarked);
+  }
+  syncBookmarkBtn();
+  bookmarkBtn.addEventListener('click', async () => {
+    const { bookmarked } = await Api.post(`/api/courses/${courseId}/bookmark`);
+    courseData.bookmarked = bookmarked;
+    syncBookmarkBtn();
+  });
+
+  // ---- Rating widget ----
+  function renderRating() {
+    const wrap = document.getElementById('ratingRow');
+    const rating = courseData.my_rating || 0;
+    wrap.innerHTML = `
+      <span style="font-size:0.82rem;color:var(--ink-soft);margin-right:8px;">Your rating:</span>
+      <span class="star-rating" id="starRating">
+        ${[1,2,3,4,5].map(n => `<button data-star="${n}" class="${n <= rating ? 'filled' : ''}" data-track="rate-course-${n}">&#9733;</button>`).join('')}
+      </span>
+    `;
+    document.getElementById('starRating').addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-star]');
+      if (!btn) return;
+      const val = Number(btn.dataset.star);
+      await Api.post(`/api/courses/${courseId}/rate`, { rating: val });
+      courseData.my_rating = val;
+      renderRating();
+    });
+  }
+  renderRating();
+
+  // ---- Certificate download (only once every module is completed) ----
+  function renderCertButton() {
+    const wrap = document.getElementById('certWrap');
+    if (!courseData.all_complete) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = `<button class="btn btn-ghost btn-sm" id="certBtn" data-track="download-certificate">Download certificate</button>`;
+    document.getElementById('certBtn').addEventListener('click', () => {
+      const text = [
+        'LEARNSTREAM — CERTIFICATE OF COMPLETION',
+        '',
+        `This certifies that ${me.full_name} (@${me.username})`,
+        `has completed all modules of:`,
+        `${courseData.course.code} — ${courseData.course.title}`,
+        '',
+        `Issued: ${new Date().toDateString()}`,
+      ].join('\n');
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `certificate-${courseData.course.code}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      Tracker.send('certificate_downloaded', {
+        course_id: courseId,
+        description: `The user with id '${me.id}' downloaded a completion certificate for course '${courseData.course.title}' (id '${courseId}').`,
+      });
+    });
+  }
+  renderCertButton();
+
+  const typeIcon = { text: 'Tx', video: 'Vi', quiz: 'Qz', mixed: 'Mx' };
+
+  function renderModuleList(activeId) {
+    const list = document.getElementById('moduleList');
+    list.innerHTML = courseData.modules.map(m => `
+      <li>
+        <a href="/course.html?id=${courseId}&module=${m.id}"
+           class="${String(m.id) === String(activeId) ? 'active' : ''}"
+           data-track="open-module-${m.id}">
+          <span class="type-icon">${typeIcon[m.type] || '?'}</span>
+          <span>${m.title}</span>
+          <span class="status-dot ${m.status}"></span>
+        </a>
+      </li>
+    `).join('');
+  }
+
+  function checkAllComplete() {
+    const allDone = courseData.modules.length > 0 && courseData.modules.every(m => m.status === 'completed');
+    if (allDone !== courseData.all_complete) {
+      courseData.all_complete = allDone;
+      renderCertButton();
+    }
+  }
+
+  let moduleId = params.get('module') || (courseData.modules[0] && courseData.modules[0].id);
+  renderModuleList(moduleId);
+  if (moduleId) loadModule(moduleId);
+  else document.getElementById('moduleBody').innerHTML = `<div class="empty-state">This course has no content yet.</div>`;
+
+  async function loadModule(id) {
+    const body = document.getElementById('moduleBody');
+    body.innerHTML = `<div class="loading">Loading module&hellip;</div>`;
+    let data;
+    try {
+      data = await Api.get(`/api/courses/${courseId}/modules/${id}`);
+    } catch (e) {
+      body.innerHTML = `<div class="empty-state">${e.message}</div>`;
+      return;
+    }
+    const m = data.module;
+    if (m.type === 'text' || m.type === 'mixed') renderText(body, m, data.note);
+    else if (m.type === 'video') renderVideo(body, m, data.note);
+    else if (m.type === 'quiz') renderQuiz(body, m, data.quiz);
+
+    // refresh sidebar status dots after view
+    const idx = courseData.modules.findIndex(x => x.id === m.id);
+    if (idx >= 0 && courseData.modules[idx].status === 'not_started') {
+      courseData.modules[idx].status = 'in_progress';
+      renderModuleList(id);
+    }
+  }
+
+  function attachNoteBox(body, m, existingNote) {
+    const noteWrap = document.createElement('div');
+    noteWrap.className = 'note-box';
+    noteWrap.innerHTML = `
+      <h3>Your notes</h3>
+      <p style="margin-top:-6px;">Private notes only you can see &mdash; saved automatically as you type.</p>
+      <textarea id="noteText" placeholder="Jot down anything worth remembering about this module&hellip;" data-track="edit-note-${m.id}">${existingNote ? existingNote.replace(/</g, '&lt;') : ''}</textarea>
+      <span class="save-status" id="noteSaveStatus"></span>
+    `;
+    body.appendChild(noteWrap);
+    let saveDebounce;
+    document.getElementById('noteText').addEventListener('input', (e) => {
+      clearTimeout(saveDebounce);
+      const status = document.getElementById('noteSaveStatus');
+      status.textContent = '';
+      saveDebounce = setTimeout(async () => {
+        await Api.post(`/api/courses/${courseId}/modules/${m.id}/note`, { note_text: e.target.value });
+        status.textContent = 'Saved ✓';
+      }, 700);
+    });
+  }
+
+  function renderText(body, m, note) {
+    body.innerHTML = `
+      <h2>${m.title}</h2>
+      <div class="text-content">${m.body_html || ''}</div>
+      <button class="btn btn-primary" style="width:auto;margin-top:10px" id="markDone" data-track="mark-complete-${m.id}">Mark as complete</button>
+    `;
+    document.getElementById('markDone').addEventListener('click', async () => {
+      await Api.post(`/api/courses/${courseId}/modules/${m.id}/complete`);
+      const idx = courseData.modules.findIndex(x => x.id === m.id);
+      if (idx >= 0) courseData.modules[idx].status = 'completed';
+      renderModuleList(m.id);
+      checkAllComplete();
+    });
+    attachNoteBox(body, m, note);
+  }
+
+  function renderVideo(body, m, note) {
+    body.innerHTML = `
+      <h2>${m.title}</h2>
+      <div class="text-content">${m.body_html || ''}</div>
+      <video id="vid" controls ${m.video_poster ? `poster="${m.video_poster}"` : ''}>
+        <source src="${m.video_url}" type="video/mp4">
+      </video>
+    `;
+    const vid = document.getElementById('vid');
+    const seen = new Set();
+    vid.addEventListener('play', () => Tracker.send('video_played', {
+      course_id: courseId, module_id: m.id,
+      description: `The user with id '${me.id}' played the video '${m.title}' at ${vid.currentTime.toFixed(1)}s.`,
+    }));
+    vid.addEventListener('pause', () => {
+      if (vid.currentTime < vid.duration - 0.25) {
+        Tracker.send('video_paused', {
+          course_id: courseId, module_id: m.id,
+          description: `The user with id '${me.id}' paused the video '${m.title}' at ${vid.currentTime.toFixed(1)}s.`,
+        });
+      }
+    });
+    vid.addEventListener('seeked', () => Tracker.send('video_seeked', {
+      course_id: courseId, module_id: m.id,
+      description: `The user with id '${me.id}' seeked the video '${m.title}' to ${vid.currentTime.toFixed(1)}s.`,
+    }));
+    vid.addEventListener('timeupdate', () => {
+      if (!vid.duration) return;
+      const pct = vid.currentTime / vid.duration;
+      [[0.25, 'video_progress_25'], [0.5, 'video_progress_50'], [0.75, 'video_progress_75']].forEach(([t, evt]) => {
+        if (pct >= t && !seen.has(evt)) {
+          seen.add(evt);
+          Tracker.send(evt, { course_id: courseId, module_id: m.id, description: `The user with id '${me.id}' reached ${Math.round(t*100)}% of video '${m.title}'.` });
+        }
+      });
+    });
+    vid.addEventListener('ended', async () => {
+      Tracker.send('video_ended', {
+        course_id: courseId, module_id: m.id,
+        description: `The user with id '${me.id}' finished watching the video '${m.title}'.`,
+      });
+      await Api.post(`/api/courses/${courseId}/modules/${m.id}/complete`);
+      const idx = courseData.modules.findIndex(x => x.id === m.id);
+      if (idx >= 0) courseData.modules[idx].status = 'completed';
+      renderModuleList(m.id);
+      checkAllComplete();
+    });
+    attachNoteBox(body, m, note);
+  }
+
+  function renderQuiz(body, m, quiz) {
+    if (!quiz) { body.innerHTML = `<div class="empty-state">This quiz has no questions yet.</div>`; return; }
+    Tracker.send('quiz_started', { course_id: courseId, module_id: m.id, description: `The user with id '${me.id}' started quiz '${quiz.title}'.` });
+
+    const selections = new Array(quiz.questions.length).fill(null);
+
+    body.innerHTML = `
+      <h2>${quiz.title}</h2>
+      <p>Pass score: ${quiz.pass_score}%</p>
+      <div id="questions"></div>
+      <button class="btn btn-primary" style="width:auto" id="submitQuiz" data-track="submit-quiz-${quiz.id}">Submit quiz</button>
+      <div id="resultBox"></div>
+    `;
+
+    const qWrap = document.getElementById('questions');
+    quiz.questions.forEach((q, qi) => {
+      const div = document.createElement('div');
+      div.className = 'quiz-question';
+      div.innerHTML = `<div class="qtext">${qi + 1}. ${q.question_text}</div>` +
+        q.options.map((opt, oi) => `<div class="quiz-option" data-qi="${qi}" data-oi="${oi}">${opt}</div>`).join('');
+      qWrap.appendChild(div);
+    });
+
+    qWrap.addEventListener('click', (e) => {
+      const opt = e.target.closest('.quiz-option');
+      if (!opt) return;
+      const qi = Number(opt.dataset.qi), oi = Number(opt.dataset.oi);
+      selections[qi] = oi;
+      qWrap.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      Tracker.send('quiz_option_selected', {
+        course_id: courseId, module_id: m.id,
+        description: `The user with id '${me.id}' selected option ${oi + 1} for question ${qi + 1} of quiz '${quiz.title}'.`,
+      });
+    });
+
+    document.getElementById('submitQuiz').addEventListener('click', async () => {
+      const res = await Api.post(`/api/quiz/${quiz.id}/submit`, { answers: selections });
+      const resultBox = document.getElementById('resultBox');
+      resultBox.innerHTML = `
+        <div class="quiz-result ${res.passed ? 'pass' : 'fail'}">
+          <strong>${res.passed ? 'Passed!' : 'Not quite there yet.'}</strong>
+          Score: ${res.score}% (pass mark ${res.pass_score}%)
+        </div>
+      `;
+      res.detail.forEach((d, qi) => {
+        qWrap.querySelectorAll(`.quiz-option[data-qi="${qi}"]`).forEach(o => {
+          const oi = Number(o.dataset.oi);
+          if (oi === d.correct_index) o.classList.add('correct');
+          else if (oi === d.chosen) o.classList.add('incorrect');
+        });
+      });
+      const idx = courseData.modules.findIndex(x => x.id === m.id);
+      if (idx >= 0) courseData.modules[idx].status = 'completed';
+      renderModuleList(m.id);
+      checkAllComplete();
+    });
+  }
+
+  // Handle sidebar navigation without full reload
+  document.getElementById('moduleList').addEventListener('click', (e) => {
+    const a = e.target.closest('a');
+    if (!a) return;
+    e.preventDefault();
+    const url = new URL(a.href);
+    const newModuleId = url.searchParams.get('module');
+    history.pushState({}, '', a.href);
+    renderModuleList(newModuleId);
+    loadModule(newModuleId);
+  });
+})();
+</script>
+</body>
+</html>

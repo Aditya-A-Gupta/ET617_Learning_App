@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard · LearnStream</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+<script>document.documentElement.setAttribute('data-theme', localStorage.getItem('ls_theme') || 'light');</script>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>LearnStream</div>
+    <nav>
+      <span class="who" id="whoami"></span>
+      <a href="/dashboard.html" data-track="nav-dashboard">Dashboard</a>
+      <a href="/profile.html" data-track="nav-profile">Profile</a>
+      <a href="/admin.html" id="adminLink" style="display:none" data-track="nav-admin">Activity log</a>
+      <button class="linklike" id="logoutBtn" data-track="nav-logout">Sign out</button>
+      <button class="theme-toggle" id="themeToggleBtn" data-track="toggle-theme"></button>
+    </nav>
+  </div>
+  <div class="ticker"><div class="ticker-track" id="tickerTrack">loading recent activity&hellip;</div></div>
+
+  <div class="shell">
+    <div class="section-eyebrow">Your courses</div>
+    <h1>Continue learning</h1>
+    <p>Every page you open, video you play, and quiz you attempt here is captured as a clickstream event.</p>
+
+    <div class="dashboard-toolbar">
+      <input type="search" id="courseSearch" placeholder="Search courses by title or code&hellip;" data-track="search-courses-input">
+      <select id="courseSort" data-track="sort-courses-select">
+        <option value="default">Sort: default</option>
+        <option value="title">Sort: title (A&ndash;Z)</option>
+        <option value="progress">Sort: progress (high to low)</option>
+        <option value="bookmarked">Sort: bookmarked first</option>
+      </select>
+    </div>
+
+    <div id="courseGrid" class="course-grid"><div class="loading">Loading courses&hellip;</div></div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script src="/js/tracker.js"></script>
+<script src="/js/theme.js"></script>
+<script>
+(async function () {
+  let me;
+  try {
+    me = (await Api.get('/api/auth/me')).user;
+  } catch (e) {
+    location.href = '/login.html';
+    return;
+  }
+  document.getElementById('whoami').textContent = `${me.full_name} (${me.username})`;
+  if (me.role === 'admin') document.getElementById('adminLink').style.display = 'inline';
+  ThemeToggle.init('themeToggleBtn');
+
+  Tracker.send('dashboard_viewed', { event_context: 'System', description: `The user with id '${me.id}' viewed their dashboard.` });
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await Api.post('/api/auth/logout');
+    location.href = '/login.html';
+  });
+
+  // Course grid: fetch once, then filter/sort entirely client-side
+  let allCourses = [];
+  const grid = document.getElementById('courseGrid');
+
+  function renderCourses(list) {
+    if (!list.length) {
+      grid.innerHTML = `<div class="empty-state">No courses match your search.</div>`;
+      return;
+    }
+    grid.innerHTML = list.map(c => `
+      <div class="course-card" data-course-id="${c.id}">
+        <a href="/course.html?id=${c.id}" data-track="open-course-${c.id}" style="text-decoration:none;color:inherit;display:block;">
+          <div class="card-top-row">
+            <div class="code">${c.code}</div>
+          </div>
+          <h3>${c.title}</h3>
+          <p>${c.description || ''}</p>
+        </a>
+        <div class="progress-row">
+          <div class="progress-bar"><i style="width:${c.progress_pct}%"></i></div>
+          <span class="progress-pct">${c.progress_pct}%</span>
+        </div>
+        <div class="rating-row">
+          ${c.avg_rating ? `&#9733; ${c.avg_rating} average rating` : 'Not yet rated'}
+          <button class="bookmark-btn ${c.bookmarked ? 'active' : ''}" data-bookmark-id="${c.id}"
+                  data-track="toggle-bookmark-${c.id}" style="float:right" title="Bookmark this course">
+            ${c.bookmarked ? '&#9733;' : '&#9734;'}
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function applyFiltersAndRender() {
+    const q = document.getElementById('courseSearch').value.trim().toLowerCase();
+    const sort = document.getElementById('courseSort').value;
+    let list = allCourses.filter(c =>
+      !q || c.title.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
+    );
+    if (sort === 'title') list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+    else if (sort === 'progress') list = [...list].sort((a, b) => b.progress_pct - a.progress_pct);
+    else if (sort === 'bookmarked') list = [...list].sort((a, b) => (b.bookmarked - a.bookmarked));
+    renderCourses(list);
+  }
+
+  try {
+    const { courses } = await Api.get('/api/courses');
+    allCourses = courses;
+    if (!courses.length) {
+      grid.innerHTML = `<div class="empty-state">No courses yet. Ask an admin to enroll you.</div>`;
+    } else {
+      renderCourses(allCourses);
+    }
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state">Could not load courses.</div>`;
+  }
+
+  let searchDebounce;
+  document.getElementById('courseSearch').addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+      applyFiltersAndRender();
+      const q = document.getElementById('courseSearch').value.trim();
+      if (q) Tracker.send('courses_searched', { event_context: 'System', description: `The user with id '${me.id}' searched courses for '${q}'.` });
+    }, 400);
+  });
+  document.getElementById('courseSort').addEventListener('change', () => {
+    applyFiltersAndRender();
+    const sort = document.getElementById('courseSort').value;
+    Tracker.send('courses_sorted', { event_context: 'System', description: `The user with id '${me.id}' sorted their course list by '${sort}'.` });
+  });
+
+  grid.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.bookmark-btn');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const id = btn.dataset.bookmarkId;
+    const { bookmarked } = await Api.post(`/api/courses/${id}/bookmark`);
+    const course = allCourses.find(c => String(c.id) === String(id));
+    if (course) course.bookmarked = bookmarked;
+    applyFiltersAndRender();
+  });
+
+  // Signature ticker: poll recent activity (admin sees all, learner sees own via /api/admin only for admins,
+  // so for learners we just show a friendly static log of this session instead).
+  async function refreshTicker() {
+    if (me.role !== 'admin') return; // learners don't have log access
+    try {
+      const { events } = await Api.get('/api/admin/clickstream?limit=20');
+      const track = document.getElementById('tickerTrack');
+      track.innerHTML = events.map(e =>
+        `<span><span class="ev-user">${e.user ? e.user.username : 'system'}</span> &middot; <span class="ev-name">${e.event_name}</span> &middot; ${e.time}</span>`
+      ).join('');
+    } catch (e) { /* ignore */ }
+  }
+  if (me.role === 'admin') {
+    refreshTicker();
+    setInterval(refreshTicker, 8000);
+  } else {
+    document.querySelector('.ticker').innerHTML =
+      `<div class="ticker-track" style="animation:none;padding-left:12px;">Tip: your clicks, video plays, and quiz attempts on this site are all being recorded as clickstream data &mdash; ask an admin to show you the activity log.</div>`;
+  }
+})();
+</script>
+</body>
+</html>

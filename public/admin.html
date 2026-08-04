@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Activity log · LearnStream</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+<script>document.documentElement.setAttribute('data-theme', localStorage.getItem('ls_theme') || 'light');</script>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>LearnStream</div>
+    <nav>
+      <span class="who" id="whoami"></span>
+      <a href="/dashboard.html" data-track="nav-dashboard">Dashboard</a>
+      <a href="/profile.html" data-track="nav-profile">Profile</a>
+      <button class="linklike" id="logoutBtn" data-track="nav-logout">Sign out</button>
+      <button class="theme-toggle" id="themeToggleBtn" data-track="toggle-theme"></button>
+    </nav>
+  </div>
+
+  <div class="shell">
+    <div class="section-eyebrow">Instructor view</div>
+    <h1>Clickstream activity log</h1>
+    <p>Every log report viewed, course viewed, video played, and quiz attempted by every learner &mdash; captured in real time.</p>
+
+    <div class="stat-grid" id="statGrid"></div>
+
+    <div class="log-toolbar">
+      <select id="componentFilter">
+        <option value="">All components</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" id="refreshBtn" data-track="admin-refresh">Refresh</button>
+      <a class="btn btn-ghost btn-sm" href="/api/admin/clickstream/export.csv" download data-track="admin-export-csv">Export CSV</a>
+    </div>
+
+    <div id="loadMoreWrap" style="text-align:center;margin-top:14px;"></div>
+
+    <div id="tableWrap"><div class="loading">Loading log&hellip;</div></div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script src="/js/tracker.js"></script>
+<script src="/js/theme.js"></script>
+<script>
+(async function () {
+  let me;
+  try { me = (await Api.get('/api/auth/me')).user; }
+  catch (e) { location.href = '/login.html'; return; }
+  if (me.role !== 'admin') { location.href = '/dashboard.html'; return; }
+  document.getElementById('whoami').textContent = `${me.full_name} (${me.username})`;
+  ThemeToggle.init('themeToggleBtn');
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await Api.post('/api/auth/logout');
+    location.href = '/login.html';
+  });
+
+  async function loadStats() {
+    const s = await Api.get('/api/admin/stats');
+    const passRate = s.quizPassRate.total ? Math.round((s.quizPassRate.passed / s.quizPassRate.total) * 100) : 0;
+    document.getElementById('statGrid').innerHTML = `
+      <div class="stat-card"><div class="num">${s.totalEvents}</div><div class="lbl">Logged events</div></div>
+      <div class="stat-card"><div class="num">${s.totalUsers}</div><div class="lbl">Learners</div></div>
+      <div class="stat-card"><div class="num">${s.totalCourses}</div><div class="lbl">Courses</div></div>
+      <div class="stat-card"><div class="num">${s.totalQuizAttempts}</div><div class="lbl">Quiz attempts</div></div>
+      <div class="stat-card"><div class="num">${passRate}%</div><div class="lbl">Quiz pass rate</div></div>
+    `;
+    const filter = document.getElementById('componentFilter');
+    const current = filter.value;
+    filter.innerHTML = `<option value="">All components</option>` +
+      s.byComponent.map(c => `<option value="${c.component}">${c.component} (${c.n})</option>`).join('');
+    filter.value = current;
+  }
+
+  let pageSize = 50;
+
+  function rowsHtml(events) {
+    return events.map(e => `
+      <tr>
+        <td class="time">${e.time}</td>
+        <td>${e.event_context}</td>
+        <td><span class="pill">${e.component}</span></td>
+        <td>${e.event_name}</td>
+        <td>${e.description}</td>
+        <td>${e.origin}</td>
+        <td class="ip">${e.ip_address || ''}</td>
+      </tr>
+    `).join('');
+  }
+
+  async function loadTable(reset = true) {
+    const wrap = document.getElementById('tableWrap');
+    if (reset) {
+      wrap.innerHTML = `<div class="loading">Loading log&hellip;</div>`;
+      pageSize = 50;
+    }
+    const component = document.getElementById('componentFilter').value;
+    const qs = `?${component ? `component=${encodeURIComponent(component)}&` : ''}limit=${pageSize}`;
+    const { events, total } = await Api.get(`/api/admin/clickstream${qs}`);
+    if (!events.length) {
+      wrap.innerHTML = `<div class="empty-state">No matching events yet.</div>`;
+      document.getElementById('loadMoreWrap').innerHTML = '';
+      return;
+    }
+    wrap.innerHTML = `
+      <p class="mono" style="font-size:0.8rem;color:var(--ink-soft)">Showing ${events.length} of ${total} events, newest first</p>
+      <table class="log-table">
+        <thead>
+          <tr><th>Time</th><th>Event context</th><th>Component</th><th>Event name</th><th>Description</th><th>Origin</th><th>IP address</th></tr>
+        </thead>
+        <tbody>${rowsHtml(events)}</tbody>
+      </table>
+    `;
+    const loadMoreWrap = document.getElementById('loadMoreWrap');
+    loadMoreWrap.innerHTML = events.length < total
+      ? `<button class="btn btn-ghost btn-sm" id="loadMoreBtn" data-track="admin-load-more">Load more (${total - events.length} remaining)</button>`
+      : '';
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+    if (loadMoreBtn) {
+      loadMoreBtn.addEventListener('click', () => {
+        pageSize += 50;
+        Tracker.send('admin_log_load_more', { event_context: 'System', description: `The admin with id '${me.id}' loaded more clickstream log rows (page size now ${pageSize}).` });
+        loadTable(false);
+      });
+    }
+  }
+
+  document.getElementById('componentFilter').addEventListener('change', () => {
+    const component = document.getElementById('componentFilter').value;
+    Tracker.send('admin_log_filtered', { event_context: 'System', description: `The admin with id '${me.id}' filtered the activity log by component '${component || 'All'}'.` });
+    loadTable(true);
+  });
+  document.getElementById('refreshBtn').addEventListener('click', () => { loadStats(); loadTable(true); });
+
+  loadStats();
+  loadTable(true);
+})();
+</script>
+</body>
+</html>

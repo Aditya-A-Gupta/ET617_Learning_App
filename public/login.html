@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sign in · LearnStream</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+<script>document.documentElement.setAttribute('data-theme', localStorage.getItem('ls_theme') || 'light');</script>
+</head>
+<body>
+  <div class="center-shell">
+    <div class="card auth-card">
+      <div class="brand-mark"><span class="dot"></span><span>LearnStream</span></div>
+      <p class="tagline">Sign in to keep learning &mdash; every step you take here is logged as clickstream data.</p>
+
+      <div id="errorBox"></div>
+
+      <form id="loginForm">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary" type="submit" data-track="login-submit">Sign in</button>
+      </form>
+
+      <form id="registerForm" style="display:none">
+        <div class="field">
+          <label for="reg_name">Full name</label>
+          <input id="reg_name" name="full_name" required>
+        </div>
+        <div class="field">
+          <label for="reg_username">Username</label>
+          <input id="reg_username" name="username" required>
+        </div>
+        <div class="field">
+          <label for="reg_password">Password</label>
+          <input id="reg_password" name="password" type="password" required>
+        </div>
+        <button class="btn btn-primary" type="submit" data-track="register-submit">Create learner account</button>
+      </form>
+
+      <div class="switcher">
+        <span id="toRegisterWrap">New here? <button type="button" id="toRegister">Create an account</button></span>
+        <span id="toLoginWrap" style="display:none">Already have an account? <button type="button" id="toLogin">Sign in</button></span>
+      </div>
+
+      <div class="hint-box">
+        demo learner &rarr; learner / learner123<br>
+        demo admin &rarr; admin / admin123
+      </div>
+    </div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script>
+  const errorBox = document.getElementById('errorBox');
+  function showError(msg) {
+    errorBox.innerHTML = `<div class="error-msg">${msg}</div>`;
+  }
+
+  document.getElementById('toRegister').onclick = () => {
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('registerForm').style.display = 'block';
+    document.getElementById('toRegisterWrap').style.display = 'none';
+    document.getElementById('toLoginWrap').style.display = 'inline';
+    errorBox.innerHTML = '';
+  };
+  document.getElementById('toLogin').onclick = () => {
+    document.getElementById('registerForm').style.display = 'none';
+    document.getElementById('loginForm').style.display = 'block';
+    document.getElementById('toLoginWrap').style.display = 'none';
+    document.getElementById('toRegisterWrap').style.display = 'inline';
+    errorBox.innerHTML = '';
+  };
+
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.innerHTML = '';
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    try {
+      await Api.post('/api/auth/login', { username, password });
+      location.href = '/dashboard.html';
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+
+  document.getElementById('registerForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.innerHTML = '';
+    const full_name = document.getElementById('reg_name').value.trim();
+    const username = document.getElementById('reg_username').value.trim();
+    const password = document.getElementById('reg_password').value;
+    try {
+      await Api.post('/api/auth/register', { full_name, username, password });
+      location.href = '/dashboard.html';
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+</script>
+</body>
+</html>

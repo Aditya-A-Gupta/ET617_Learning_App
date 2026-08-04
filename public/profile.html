@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Profile · LearnStream</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/css/style.css">
+<script>document.documentElement.setAttribute('data-theme', localStorage.getItem('ls_theme') || 'light');</script>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>LearnStream</div>
+    <nav>
+      <span class="who" id="whoami"></span>
+      <a href="/dashboard.html" data-track="nav-dashboard">Dashboard</a>
+      <a href="/admin.html" id="adminLink" style="display:none" data-track="nav-admin">Activity log</a>
+      <button class="linklike" id="logoutBtn" data-track="nav-logout">Sign out</button>
+      <button class="theme-toggle" id="themeToggleBtn" data-track="toggle-theme"></button>
+    </nav>
+  </div>
+
+  <div class="shell">
+    <div class="section-eyebrow">Your account</div>
+    <div class="profile-header">
+      <div class="avatar-circle" id="avatarCircle">?</div>
+      <div>
+        <h1 id="profileName" style="margin-bottom:2px;">&nbsp;</h1>
+        <p style="margin:0" class="mono" id="profileUsername"></p>
+      </div>
+    </div>
+
+    <div class="stat-grid" id="statGrid"></div>
+
+    <div class="card" style="margin-bottom:24px;">
+      <h2>Bookmarked courses</h2>
+      <div id="bookmarkList" class="bookmark-chip-list"><span class="loading">Loading&hellip;</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Your recent activity</h2>
+      <p>The last actions LearnStream recorded for your account &mdash; the same kind of row an instructor sees in the full activity log.</p>
+      <ul class="activity-feed" id="activityFeed"><li class="loading">Loading&hellip;</li></ul>
+    </div>
+  </div>
+
+<script src="/js/api.js"></script>
+<script src="/js/tracker.js"></script>
+<script src="/js/theme.js"></script>
+<script>
+(async function () {
+  let me;
+  try { me = (await Api.get('/api/auth/me')).user; }
+  catch (e) { location.href = '/login.html'; return; }
+  document.getElementById('whoami').textContent = `${me.full_name} (${me.username})`;
+  if (me.role === 'admin') document.getElementById('adminLink').style.display = 'inline';
+  ThemeToggle.init('themeToggleBtn');
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    await Api.post('/api/auth/logout');
+    location.href = '/login.html';
+  });
+
+  const data = await Api.get('/api/profile');
+
+  document.getElementById('avatarCircle').textContent = data.user.full_name.slice(0, 1).toUpperCase();
+  document.getElementById('profileName').textContent = data.user.full_name;
+  document.getElementById('profileUsername').textContent = `@${data.user.username} · ${data.user.role}`;
+
+  document.getElementById('statGrid').innerHTML = `
+    <div class="stat-card"><div class="num">${data.enrolledCourses}</div><div class="lbl">Courses enrolled</div></div>
+    <div class="stat-card"><div class="num">${data.completedModules}</div><div class="lbl">Modules completed</div></div>
+    <div class="stat-card"><div class="num">${data.quizAttempts}</div><div class="lbl">Quiz attempts</div></div>
+    <div class="stat-card"><div class="num">${data.avgQuizScore}%</div><div class="lbl">Average quiz score</div></div>
+    <div class="stat-card"><div class="num">${data.totalEvents}</div><div class="lbl">Your logged events</div></div>
+  `;
+
+  const bmWrap = document.getElementById('bookmarkList');
+  bmWrap.innerHTML = data.bookmarks.length
+    ? data.bookmarks.map(b => `<a class="bookmark-chip" href="/course.html?id=${b.course_id}" data-track="profile-open-bookmark-${b.course_id}">&#9733; ${b.code} &mdash; ${b.title}</a>`).join('')
+    : `<span style="color:var(--ink-soft);font-size:0.88rem;">No bookmarks yet &mdash; star a course from your dashboard to save it here.</span>`;
+
+  const feed = document.getElementById('activityFeed');
+  feed.innerHTML = data.recentActivity.length
+    ? data.recentActivity.map(e => `<li><span class="time">${e.event_time}</span><span>${e.description}</span></li>`).join('')
+    : `<li style="color:var(--ink-soft)">No activity recorded yet.</li>`;
+})();
+</script>
+</body>
+</html>
