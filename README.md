@@ -106,7 +106,6 @@ Open http://localhost:3000 in a browser.
 | Role    | Username | Password    |
 |---------|----------|-------------|
 | Learner | learner  | learner123  |
-| Learner | priya    | learner123  |
 | Admin   | admin    | admin123    |
 
 Log in as `learner` to experience the course content and generate
