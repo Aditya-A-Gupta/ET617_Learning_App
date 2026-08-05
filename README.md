@@ -3,24 +3,24 @@
 A standalone web application for interactive learning with full **clickstream
 analytics**. Learners log in, work through courses made of text, video, and
 quiz content, and every interaction (page views, clicks, video play/pause/seek,
-quiz attempts, logins, etc.) is captured as a structured activity-log event —
+quiz attempts, logins, etc.) is captured as a structured activity-log event -
 in the same spirit as the Moodle-style log export in the project brief.
 
 ## Features
 
-- **Learner accounts** — register / log in / log out, JWT session in an
+- **Learner accounts** - register / log in / log out, JWT session in an
   httpOnly cookie, passwords hashed with bcrypt.
-- **Interactive content** — each course is a sequence of modules that can be
+- **Interactive content** - each course is a sequence of modules that can be
   `text`, `video`, or `quiz` (auto-graded, multiple choice, pass/fail).
-- **Clickstream tracking** — every meaningful action is written to a
+- **Clickstream tracking** - every meaningful action is written to a
   `clickstream` table with the same columns as the brief's example:
   `Time, Event context, Component, Event name, Description, Origin, IP address`.
-- **Instructor / admin view** (`/admin.html`) — live stats, a filterable,
+- **Instructor / admin view** (`/admin.html`) - live stats, a filterable,
   paginated activity-log table, and a **CSV export** that reproduces the
   exact column layout from the brief.
 - **Progress tracking, bookmarks, ratings, personal notes, a profile page,
-  and downloadable completion certificates** — see the full action list below.
-- **Responsive, themeable UI** — works from a 360px phone screen up to a
+  and downloadable completion certificates** - see the full action list below.
+- **Responsive, themeable UI** - works from a 360px phone screen up to a
   desktop monitor, with a light/dark mode toggle.
 
 ## The 20+ trackable user actions
@@ -52,7 +52,7 @@ the UI, and each writes a row to the `clickstream` table:
 22. (Admin) Filter the activity log by component
 23. (Admin) Load more log rows (pagination)
 24. (Admin) Export the activity log as CSV
-25. Generic UI clicks — every element tagged `data-track="..."` (nav links,
+25. Generic UI clicks - every element tagged `data-track="..."` (nav links,
     buttons) is captured automatically
 
 ## Responsive design
@@ -68,14 +68,14 @@ The layout adapts at three breakpoints (defined in `public/css/style.css`):
   wraps its navigation.
 
 Try resizing the browser window or opening dev tools' device toolbar on any
-page — nothing requires a page reload to adapt.
+page - nothing requires a page reload to adapt.
 
 ## Visual design
 
 Palette: ink `#171B21` / paper `#EEF1F5` with indigo, teal, and amber accents
 (a separate dark palette is used automatically in dark mode). Typography
 pairs an editorial serif (Fraunces) for headings with Inter for body text and
-IBM Plex Mono for anything log/data-related — reinforcing that this is, at
+IBM Plex Mono for anything log/data-related - reinforcing that this is, at
 its core, a data-logging application. The scrolling activity ticker on the
 dashboard (visible to admins) is the app's signature element, showing
 clickstream rows arriving in real time.
@@ -89,7 +89,7 @@ clickstream rows arriving in real time.
 - **Storage:** SQLite file at `server/db/learnstream.db` (created automatically
   on first run; schema in `server/db/schema.sql`).
 
-No external services or API keys are required — the whole app runs locally.
+No external services or API keys are required - the whole app runs locally.
 
 ## Getting started
 
@@ -163,7 +163,7 @@ sent from the browser to `POST /api/track`, which validates the event name
 against an allow-list and writes it through the same `logEvent()` path.
 
 Admins can browse the raw log at `/admin.html`, filter it by component, and
-export the full table as CSV via `GET /api/admin/clickstream/export.csv` —
+export the full table as CSV via `GET /api/admin/clickstream/export.csv` -
 the exported columns match the brief's example 1:1.
 
 ## Version control
